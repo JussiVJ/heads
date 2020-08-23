@@ -20,15 +20,6 @@ jobs:
                 `/bin/pwd`/build/linuxboot-git/build/qemu/.configured \
                 # Run first to avoid too many processes
 
-      - run:
-          name: qemu-linuxboot
-          command: |
-            ./build/make-4.2.1/make \
-                CROSS=/cross/bin/x86_64-linux-musl- \
-                --load 2 \
-                V=1 \
-                BOARD=qemu-linuxboot \
-
       - store-artifacts:
           path: build/qemu-linuxboot/linuxboot.rom
       - store-artifacts:
