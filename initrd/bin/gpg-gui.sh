@@ -2,9 +2,71 @@
 #
 set -e -o pipefail
 . /etc/functions
-. /etc/gui_functions
 . /tmp/config
 
+mount_usb(){
+# Mount the USB boot device
+  if ! grep -q /media /proc/mounts ; then
+    mount-usb "$CONFIG_USB_BOOT_DEV" || USB_FAILED=1
+    if [ $USB_FAILED -ne 0 ]; then
+      if [ ! -e "$CONFIG_USB_BOOT_DEV" ]; then
+        whiptail --title 'USB Drive Missing' \
+          --msgbox "Insert your USB drive and press Enter to continue." 16 60 USB_FAILED=0
+        mount-usb "$CONFIG_USB_BOOT_DEV" || USB_FAILED=1
+      fi
+      if [ $USB_FAILED -ne 0 ]; then
+        whiptail $CONFIG_ERROR_BG_COLOR --title 'ERROR: Mounting /media Failed' \
+          --msgbox "Unable to mount $CONFIG_USB_BOOT_DEV" 16 60
+      fi
+    fi
+  fi
+}
+
+file_selector() {
+  FILE=""
+  FILE_LIST=$1
+  MENU_MSG=${2:-"Choose the file"}
+# create file menu options
+  if [ `cat "$FILE_LIST" | wc -l` -gt 0 ]; then
+    option=""
+    while [ -z "$option" ]
+    do
+      MENU_OPTIONS=""
+      n=0
+      while read option
+      do
+        n=`expr $n + 1`
+        option=$(echo $option | tr " " "_")
+        MENU_OPTIONS="$MENU_OPTIONS $n ${option}"
+      done < $FILE_LIST
+
+      MENU_OPTIONS="$MENU_OPTIONS a Abort"
+      whiptail --clear --title "Select your File" \
+        --menu "${MENU_MSG} [1-$n, a to abort]:" 20 120 8 \
+        -- $MENU_OPTIONS \
+        2>/tmp/whiptail || die "Aborting"
+
+      option_index=$(cat /tmp/whiptail)
+
+      if [ "$option_index" = "a" ]; then
+        option="a"
+        return
+      fi
+
+      option=`head -n $option_index $FILE_LIST | tail -1`
+      if [ "$option" == "a" ]; then
+        return
+      fi
+    done
+    if [ -n "$option" ]; then
+      FILE=$option
+    fi
+  else
+    whiptail $CONFIG_ERROR_BG_COLOR --title 'ERROR: No Files Found' \
+      --msgbox "No Files found matching the pattern. Aborting." 16 60
+    exit 1
+  fi
+}
 gpg_flash_rom() {
 
   if [ "$1" = "replace" ]; then
@@ -77,7 +139,7 @@ gpg_post_gen_mgmt() {
   GPG_GEN_KEY=`grep -A1 pub /tmp/gpg_card_edit_output | tail -n1 | sed -nr 's/^([ ])*//p'`
   gpg --export --armor $GPG_GEN_KEY > "/tmp/${GPG_GEN_KEY}.asc"
   if (whiptail --title 'Add Public Key to USB disk?' \
-      --yesno "Would you like to copy the GPG public key you generated to a USB disk?\n\nYou may need it, if you want to use it outside of Heads later.\n\nThe file will show up as ${GPG_GEN_KEY}.asc" 16 90) then
+      --yesno "Would you like to copy the GPG public key you generated to a USB disk?\n\nOtherwise you will not be able to copy it outside of Heads later\n\nThe file will show up as ${GPG_GEN_KEY}.asc" 16 90) then
     mount_usb
     mount -o remount,rw /media
     cp "/tmp/${GPG_GEN_KEY}.asc" "/media/${GPG_GEN_KEY}.asc"
@@ -143,7 +205,6 @@ while true; do
     'a' ' Add GPG key to standalone BIOS image + flash' \
     'e' ' Replace GPG key(s) in the current ROM + reflash' \
     'l' ' List GPG keys in your keyring' \
-    'p' ' Export public GPG key to USB drive' \
     'g' ' Generate GPG keys manually on a USB security token' \
     'x' ' Exit' \
     2>/tmp/whiptail || recovery "GUI menu failed"
@@ -202,23 +263,6 @@ while true; do
       GPG_KEYRING=`gpg -k`
       whiptail --title 'GPG Keyring' \
         --msgbox "${GPG_KEYRING}" 16 60
-    ;;
-    "p" )
-        if (whiptail --title 'Export Public Key(s) to USB drive?' \
-          --yesno "Would you like to copy GPG public key(s) to a USB drive?\n\nThe file will show up as public-key.asc" 16 90) then
-        mount_usb
-        mount -o remount,rw /media
-        gpg --export --armor > "/tmp/public-key.asc"
-        cp "/tmp/public-key.asc" "/media/public-key.asc"
-        if [ $? -eq 0 ]; then
-          whiptail --title "The GPG Key Copied Successfully" \
-            --msgbox "public-key.asc copied successfully." 16 60
-        else
-          whiptail $CONFIG_ERROR_BG_COLOR --title 'ERROR: Copy Failed' \
-            --msgbox "Unable to copy public-key.asc to /media" 16 60
-        fi
-        umount /media
-      fi
     ;;
     "g" )
       confirm_gpg_card

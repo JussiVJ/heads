@@ -271,15 +271,13 @@ update_checksums()
 		|| recovery "Unable to mount /boot"
 	fi
 	# remount RW
-	mount -o rw,remount /boot
-	(
-	  cd /boot
-	  find ./ -type f ! -name '*kexec*' | xargs sha256sum > /boot/kexec_hashes.txt
-	  if [ -e /boot/kexec_default_hashes.txt ]; then
-	    DEFAULT_FILES=$(cat /boot/kexec_default_hashes.txt | cut -f3 -d ' ')
-	    echo $DEFAULT_FILES | xargs sha256sum > /boot/kexec_default_hashes.txt
-	  fi
-	)
+    	mount -o rw,remount /boot
+	cd /boot
+	find ./ -type f ! -name '*kexec*' | xargs sha256sum > /boot/kexec_hashes.txt
+	if [ -e /boot/kexec_default_hashes.txt ]; then
+	  DEFAULT_FILES=$(cat /boot/kexec_default_hashes.txt | cut -f3 -d ' ')
+	  echo $DEFAULT_FILES | xargs sha256sum > /boot/kexec_default_hashes.txt
+	fi
 	# Remove any package trigger log files
 	# We don't need them after the user decides to sign
 	rm -f /boot/kexec_package_trigger*
@@ -303,7 +301,7 @@ update_checksums()
 detect_boot_device()
 {
 	# unmount /boot to be safe
-	cd / && umount /boot 2>/dev/null
+	umount /boot 2>/dev/null
 
 	# check $CONFIG_BOOT_DEV if set/valid
 	if [ -e "$CONFIG_BOOT_DEV" ]; then
@@ -322,7 +320,7 @@ detect_boot_device()
 	> /tmp/boot_device_list
 	for i in `cat /tmp/disklist`; do
 		# remove block device from list if numeric partitions exist, since not bootable
-		DEV_NUM_PARTITIONS=$((`ls -1 $i* | wc -l`-1))
+		let DEV_NUM_PARTITIONS=`ls -1 $i* | wc -l`-1
 		if [ ${DEV_NUM_PARTITIONS} -eq 0 ]; then
 			echo $i >> /tmp/boot_device_list
 		else

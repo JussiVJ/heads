@@ -2,8 +2,54 @@
 #
 set -e -o pipefail
 . /etc/functions
-. /etc/gui_functions
 . /tmp/config
+
+file_selector() {
+  FILE=""
+  FILE_LIST=$1
+  MENU_MSG=${2:-"Choose the file"}
+  MENU_TITLE=${3:-"Select your File"}
+# create file menu options
+  if [ `cat "$FILE_LIST" | wc -l` -gt 0 ]; then
+    option=""
+    while [ -z "$option" ]
+    do
+      MENU_OPTIONS=""
+      n=0
+      while read option
+      do
+        n=`expr $n + 1`
+        option=$(echo $option | tr " " "_")
+        MENU_OPTIONS="$MENU_OPTIONS $n ${option}"
+      done < $FILE_LIST
+
+      MENU_OPTIONS="$MENU_OPTIONS a Abort"
+      whiptail --clear --title "${MENU_TITLE}" \
+        --menu "${MENU_MSG} [1-$n, a to abort]:" 20 120 8 \
+        -- $MENU_OPTIONS \
+        2>/tmp/whiptail || die "Aborting"
+
+      option_index=$(cat /tmp/whiptail)
+
+      if [ "$option_index" = "a" ]; then
+        option="a"
+        return
+      fi
+
+      option=`head -n $option_index $FILE_LIST | tail -1`
+      if [ "$option" == "a" ]; then
+        return
+      fi
+    done
+    if [ -n "$option" ]; then
+      FILE=$option
+    fi
+  else
+    whiptail $CONFIG_ERROR_BG_COLOR --title 'ERROR: No Files Found' \
+      --msgbox "No Files found matching the pattern. Aborting." 16 60
+    exit 1
+  fi
+}
 
 param=$1
 
@@ -36,7 +82,7 @@ while true; do
       > /tmp/boot_device_list.txt
       for i in `cat /tmp/disklist.txt`; do
         # remove block device from list if numeric partitions exist, since not bootable
-        DEV_NUM_PARTITIONS=$((`ls -1 $i* | wc -l`-1))
+        let DEV_NUM_PARTITIONS=`ls -1 $i* | wc -l`-1
         if [ ${DEV_NUM_PARTITIONS} -eq 0 ]; then
           echo $i >> /tmp/boot_device_list.txt
         else
@@ -52,20 +98,17 @@ while true; do
         SELECTED_FILE=$FILE
       fi
 
-      # unmount /boot if needed
-      if grep -q /boot /proc/mounts ; then
-        umount /boot 2>/dev/null
-      fi
-      # mount newly selected /boot device
-      if ! mount -o ro $SELECTED_FILE /boot 2>/tmp/error ; then
-        ERROR=`cat /tmp/error`
-        whiptail $CONFIG_ERROR_BG_COLOR --title 'ERROR: unable to mount /boot' \
-          --msgbox "    $ERROR\n\n" 16 60
-        exit 1
-      fi
-
       replace_config /etc/config.user "CONFIG_BOOT_DEV" "$SELECTED_FILE"
       combine_configs
+
+      # mount newly selected /boot device
+      if ! ( umount /boot 2>/tmp/error && \
+          mount -o ro $SELECTED_FILE /boot 2>/tmp/error ); then
+        ERROR=`cat /tmp/error`
+        whiptail $CONFIG_ERROR_BG_COLOR --title 'ERROR: unable to mount /boot' \
+          --msgbox "Unable to un/re-mount /boot:\n\n$ERROR" 16 60
+        exit 1
+      fi
 
       whiptail --title 'Config change successful' \
         --msgbox "The /boot device was successfully changed to $SELECTED_FILE" 16 60
